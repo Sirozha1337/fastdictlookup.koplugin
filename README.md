@@ -1,6 +1,6 @@
 # Fast Dictionary Lookup (fastdictlookup.koplugin)
 
-A KOReader plugin for fast dictionary lookup that mimics Kindle default dictionary behavior:
+A [KOReader](https://github.com/koreader/koreader) plugin for fast dictionary lookup that mimics Kindle default dictionary behavior:
 - move typewriter-like cursor with arrow buttons
 - instantly see word definition
 - press enter to open full dictionary lookup window
@@ -48,8 +48,9 @@ Notes for consideration:
 - Only one dictionary at a time is supported
 - Dictionaries bigger than 2GB are not supported
 - Compressed dictionaries (`.dz`) are not supported. You can unzip them manually: 
-    ```
-    gunzip dictictionary.dict.dz
+    ```bash
+    mv dictionary.dict.dz dictionary.dict.gz
+    gunzip dictionary.dict.gz
     ```
 - Synonyms (`.syn` files) are not supported. Use `pyglossary` to merge dictionaries with synonyms (`.syn` files):
   ```bash
@@ -65,7 +66,6 @@ Since the plugin targets mainly my Kindle (which is Kindle 4 NonTouch from 2012)
 - Replace default lookup menu opened on tap/enter with fastlookup
 - Use multiple dictionaries at the same time
 - Load dictionary depending on book language
-- Cache preferred dictionary per book
 - Handle html/markdown data in dictionary
 
 ## 💻 Implementation notes
@@ -75,7 +75,7 @@ The plugin consists of three core Lua modules:
 - `main.lua` implements the `Typewriter` helper for cursor-based word navigation and fast lookup trigger:
   - `typewriter_mode_enabled` checkbox toggles cursor mode.
   - `typewriter_fast_lookup_enabled` toggles live dictionary preview.
-  - `typewriter_fast_lookup_dict` is the selected dictionary `.ifo` file path.
+  - `typewriter_fast_lookup_dict` stores the selected dictionary `.ifo` file path. It saves uniquely per-book (`self.ui.doc_settings`) and falls back to the global default (`G_reader_settings`). There is an option to set the current dictionary as the global default.
   - `setupKeyEvents()` binds arrow keys and `Press`/`Back` while cursor is active.
   - `activateCursor()` / `deactivateCursor()` manage state, overlay and key suppression.
   - `showFastLookup(word, y)` calls StarDict lookup and spawns `FastLookupWidget`.
