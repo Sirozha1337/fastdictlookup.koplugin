@@ -31,6 +31,15 @@ function Typewriter:init()
     logger.dbg("Typewriter: init")
 
     self.ui.menu:registerToMainMenu(self)
+
+    -- Hook the top menu creation to dismiss our custom widgets
+    local orig_onShowMenu = self.ui.menu.onShowMenu
+    self.ui.menu.onShowMenu = function(menu_self, tab_index, do_not_show)
+        self:deactivateCursor()
+        self:dismissFastLookup()
+        return orig_onShowMenu(menu_self, tab_index, do_not_show)
+    end
+
     self.enabled = G_reader_settings:isTrue("typewriter_mode_enabled")
 
     -- Fast lookup settings
