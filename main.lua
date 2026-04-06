@@ -35,7 +35,8 @@ function Typewriter:init()
 
     -- Fast lookup settings
     self.fast_lookup_enabled = G_reader_settings:isTrue("typewriter_fast_lookup_enabled")
-    self.fast_lookup_dict_ifo = G_reader_settings:readSetting("typewriter_fast_lookup_dict")
+    local doc_dict = self.ui.doc_settings and self.ui.doc_settings:readSetting("typewriter_fast_lookup_dict")
+    self.fast_lookup_dict_ifo = doc_dict or G_reader_settings:readSetting("typewriter_fast_lookup_dict")
     if self.fast_lookup_enabled and self.fast_lookup_dict_ifo then
         self:openFastLookupDict()
     end
@@ -209,6 +210,23 @@ function Typewriter:addToMainMenu(menu_items)
                 end,
                 keep_menu_open = true,
             },
+            {
+                text = _("Set as default dictionary"),
+                callback = function()
+                    if self.fast_lookup_dict_ifo then
+                        G_reader_settings:saveSetting("typewriter_fast_lookup_dict", self.fast_lookup_dict_ifo)
+                        local InfoMessage = require("ui/widget/infomessage")
+                        UIManager:show(InfoMessage:new{
+                            text = _("Dictionary set as default for all books"),
+                            timeout = 3,
+                        })
+                    end
+                end,
+                show_func = function()
+                    return self.fast_lookup_dict_ifo ~= nil and self.fast_lookup_dict_ifo ~= G_reader_settings:readSetting("typewriter_fast_lookup_dict")
+                end,
+                keep_menu_open = true,
+            },
         },
     }
 end
@@ -284,7 +302,9 @@ function Typewriter:showDictSelectionDialog(touchmenu_instance)
             text = label,
             callback = function()
                 self.fast_lookup_dict_ifo = dict.ifo_path
-                G_reader_settings:saveSetting("typewriter_fast_lookup_dict", dict.ifo_path)
+                if self.ui.doc_settings then
+                    self.ui.doc_settings:saveSetting("typewriter_fast_lookup_dict", dict.ifo_path)
+                end
                 if self.fast_lookup_enabled then
                     self:openFastLookupDict()
                 end
