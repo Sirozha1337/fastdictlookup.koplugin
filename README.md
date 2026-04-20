@@ -1,10 +1,11 @@
 # Fast Dictionary Lookup (fastdictlookup.koplugin)
 
 A [KOReader](https://github.com/koreader/koreader) plugin for fast dictionary lookup that mimics Kindle default dictionary behavior:
+
 - move typewriter-like cursor with arrow buttons
 - instantly see word definition
 - press enter to open full dictionary lookup window
-
+- moving a cursor over a footnote link, immediately displays its content
 
 ## 💾 Installation
 
@@ -31,7 +32,7 @@ A [KOReader](https://github.com/koreader/koreader) plugin for fast dictionary lo
 11. Wait for the dictionary to load (usually less than 30 seconds, depends on the size of the dictionary)
 12. Use **Up/Down** arrow keys to enter **Typewriter Cursor Mode**
 13. Move cursor with arrows and instantly see word definitions from your selected dictionary
-14. Move cursor to the end/beginning of the page or press **Back** button to exit 
+14. Move cursor to the end/beginning of the page or press **Back** button to exit
 
 **Note**: dictionaries are read from the default KOReader's dictionary folder: `koreadeader/data/dict/`
 
@@ -42,16 +43,17 @@ A [KOReader](https://github.com/koreader/koreader) plugin for fast dictionary lo
 
 ## 🗂️ Dictionary requirements
 
-The plugin uses StarDict dictionary files in a plain (uncompressed) format. 
+The plugin uses StarDict dictionary files in a plain (uncompressed) format.
 
 Notes for consideration:
+
 - Only one dictionary at a time is supported
 - Dictionaries bigger than 2GB are not supported
-- Compressed dictionaries (`.dz`) are not supported. You can unzip them manually: 
-    ```bash
-    mv dictionary.dict.dz dictionary.dict.gz
-    gunzip dictionary.dict.gz
-    ```
+- Compressed dictionaries (`.dz`) are not supported. You can unzip them manually:
+  ```bash
+  mv dictionary.dict.dz dictionary.dict.gz
+  gunzip dictionary.dict.gz
+  ```
 - Synonyms (`.syn` files) are not supported. Use `pyglossary` to merge dictionaries with synonyms (`.syn` files):
   ```bash
     pip install pyglossary
