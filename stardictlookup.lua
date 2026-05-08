@@ -11,6 +11,8 @@ local bit = require("bit")
 local lfs = require("libs/libkoreader-lfs")
 local logger = require("logger")
 
+local HtmlUtil = require("htmlutil")
+
 require("ffi/posix_h")
 
 -- MAP_PRIVATE is not in posix_h.lua; define as Lua constant (value 2 on Linux)
@@ -147,24 +149,29 @@ function StarDictLookup.open(meta)
     local data = self.idx_data
     local size = self.idx_size
 
-    -- First pass: count entries
-    local count = 0
-    local scan_pos = 0
-    while scan_pos < size do
-        while scan_pos < size and data[scan_pos] ~= 0 do scan_pos = scan_pos + 1 end
-        if scan_pos >= size then break end
-        scan_pos = scan_pos + 1 -- skip null
-        if scan_pos + 8 > size then break end
-        scan_pos = scan_pos + 8
-        count = count + 1
+    local count
+    if meta.wordcount then
+        -- Pre-allocate from .ifo metadata (single-pass build)
+        count = meta.wordcount
+    else
+        -- Fallback: first pass to count entries
+        count = 0
+        local scan_pos = 0
+        while scan_pos < size do
+            while scan_pos < size and data[scan_pos] ~= 0 do scan_pos = scan_pos + 1 end
+            if scan_pos >= size then break end
+            scan_pos = scan_pos + 1 -- skip null
+            if scan_pos + 8 > size then break end
+            scan_pos = scan_pos + 8
+            count = count + 1
+        end
     end
 
     -- Allocate compact C array (~4 bytes per entry, no GC pressure)
-    self.entry_count = count
     self.entry_offsets = ffi.new("uint32_t[?]", count)
 
-    -- Second pass: record byte offsets
-    scan_pos = 0
+    -- Record byte offsets (single pass over mmap'd data)
+    local scan_pos = 0
     local idx = 0
     while scan_pos < size and idx < count do
         self.entry_offsets[idx] = scan_pos
@@ -175,6 +182,7 @@ function StarDictLookup.open(meta)
         if scan_pos + 8 > size then break end
         scan_pos = scan_pos + 8
     end
+    self.entry_count = idx
 
     logger.dbg("StarDictLookup: indexed", count, "entries from", meta.bookname)
 
@@ -303,32 +311,7 @@ function DictInstance:getDefinitionPreview(entry)
     -- Strip HTML tags if this is an HTML dictionary
     local is_html = self.sametypesequence == "h" or self.sametypesequence == "H"
     if is_html then
-        -- Replace <br>, <br/>, <p>, </p> with newlines
-        definition = definition:gsub("<[bB][rR]%s*/?>"  , "\n")
-        definition = definition:gsub("</?[pP]%s*>"       , "\n")
-        -- Strip all remaining HTML tags (replace with space to avoid words merging)
-        definition = definition:gsub("<[^>]+>", " ")
-        -- Decode common HTML entities
-        definition = definition:gsub("&amp;",  "&")
-        definition = definition:gsub("&lt;",   "<")
-        definition = definition:gsub("&gt;",   ">")
-        definition = definition:gsub("&quot;", '"')
-        definition = definition:gsub("&nbsp;", " ")
-        definition = definition:gsub("&#(%d+);", function(n)
-            local cp = tonumber(n)
-            if cp < 128 then
-                return string.char(cp)
-            elseif cp < 2048 then
-                return string.char(0xC0 + math.floor(cp / 64), 0x80 + cp % 64)
-            else
-                return string.char(
-                    0xE0 + math.floor(cp / 4096),
-                    0x80 + math.floor(cp / 64) % 64,
-                    0x80 + cp % 64)
-            end
-        end)
-        -- Collapse runs of spaces introduced by tag removal
-        definition = definition:gsub(" +", " ")
+        definition = HtmlUtil.stripHtml(definition)
     end
 
     -- Trim leading/trailing whitespace

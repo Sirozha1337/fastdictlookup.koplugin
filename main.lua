@@ -1,34 +1,27 @@
 local InputContainer = require("ui/widget/container/inputcontainer")
-local DataStorage = require("datastorage")
 local Device = require("device")
-local Geom = require("ui/geometry")
 local Screen = Device.screen
-local Size = require("ui/size")
 local UIManager = require("ui/uimanager")
-local Blitbuffer = require("ffi/blitbuffer")
 local logger = require("logger")
-local time = require("ui/time")
 local _ = require("gettext")
+
+local CursorNavigator = require("cursor")
+local HighlightController = require("highlighting")
+local FastLookupController = require("fastlookup")
 
 local Typewriter = InputContainer:extend{
     name = "typewriter",
     is_doc_only = true,
-
-    -- State
     enabled = false,
-    cursor_active = false,
-    current_word_xp = nil,      -- xpointer to current word start
-    current_word_end_xp = nil,  -- xpointer to current word end
-
-    -- Fast dictionary lookup
-    fast_lookup_enabled = false,
-    fast_lookup_dict_ifo = nil, -- ifo_path of selected dictionary
-    _dict_instance = nil,       -- opened StarDictLookup.DictInstance
-    _fast_lookup_widget = nil,  -- currently shown FastLookupWidget
 }
 
 function Typewriter:init()
     logger.dbg("Typewriter: init")
+
+    -- Compose sub-modules
+    self.cursor = CursorNavigator:new(self.ui)
+    self.highlight = HighlightController:new(self.ui)
+    self.lookup = FastLookupController:new(self.ui)
 
     self.ui.menu:registerToMainMenu(self)
 
@@ -36,47 +29,24 @@ function Typewriter:init()
     local orig_onShowMenu = self.ui.menu.onShowMenu
     self.ui.menu.onShowMenu = function(menu_self, tab_index, do_not_show)
         self:deactivateCursor()
-        self:dismissFastLookup()
+        self.lookup:dismissWidget()
         return orig_onShowMenu(menu_self, tab_index, do_not_show)
     end
 
     self.enabled = G_reader_settings:isTrue("typewriter_mode_enabled")
 
     -- Fast lookup settings
-    self.fast_lookup_enabled = G_reader_settings:isTrue("typewriter_fast_lookup_enabled")
+    self.lookup.fast_lookup_enabled = G_reader_settings:isTrue("typewriter_fast_lookup_enabled")
     local doc_dict = self.ui.doc_settings and self.ui.doc_settings:readSetting("typewriter_fast_lookup_dict")
-    self.fast_lookup_dict_ifo = doc_dict or G_reader_settings:readSetting("typewriter_fast_lookup_dict")
-    if self.fast_lookup_enabled and self.fast_lookup_dict_ifo then
-        self:openFastLookupDict()
-    end
-
-    -- Overlay widget registered as a view module for drawing on the page
-    self._cursor_overlay = {
-        visible = false,
-        cursor_rect = nil, -- {x, y, h} vertical cursor line
-        word_rects = nil,  -- array of {x, y, w, h} word underlines
-        paintTo = function(overlay, bb, x, y)
-            if not overlay.visible then return end
-            if overlay.word_rects then
-                for _, r in ipairs(overlay.word_rects) do
-                    bb:paintRect(r.x, r.y + r.h - Size.border.thick,
-                        r.w, Size.border.thick, Blitbuffer.COLOR_DARK_GRAY)
-                end
-            end
-            if overlay.cursor_rect then
-                local r = overlay.cursor_rect
-                bb:paintRect(r.x, r.y, Screen:scaleBySize(2), r.h,
-                    Blitbuffer.COLOR_BLACK)
-            end
-        end,
-    }
-
-    if self.ui.view then
-        self.ui.view:registerViewModule("typewriter_cursor", self._cursor_overlay)
+    self.lookup.fast_lookup_dict_ifo = doc_dict or G_reader_settings:readSetting("typewriter_fast_lookup_dict")
+    if self.lookup.fast_lookup_enabled and self.lookup.fast_lookup_dict_ifo then
+        self.lookup:openDict()
     end
 
     self:setupKeyEvents()
 end
+
+-- Key event suppression ------------------------------------------------------
 
 -- Check if a key_event sequence entry matches a bare (unmodified) press
 -- of any key in the given set. Sequences with modifiers (e.g. {"Shift","Right"})
@@ -155,9 +125,9 @@ end
 function Typewriter:setupKeyEvents()
     self.key_events = {}
     if not self.enabled or not Device:hasKeys() then return end
-    logger.dbg("Typewriter: setupKeyEvents, cursor_active=", self.cursor_active)
+    logger.dbg("Typewriter: setupKeyEvents, cursor_active=", self.cursor.cursor_active)
 
-    if self.cursor_active then
+    if self.cursor.cursor_active then
         self.key_events = {
             TypewriterLeft  = { { "Left" } },
             TypewriterRight = { { "Right" } },
@@ -173,6 +143,8 @@ function Typewriter:setupKeyEvents()
         }
     end
 end
+
+-- Menu -----------------------------------------------------------------------
 
 function Typewriter:addToMainMenu(menu_items)
     menu_items.typewriter = {
@@ -194,37 +166,37 @@ function Typewriter:addToMainMenu(menu_items)
         sub_item_table = {
             {
                 text = _("Enable Fast Dictionary Lookup"),
-                checked_func = function() return self.fast_lookup_enabled end,
+                checked_func = function() return self.lookup.fast_lookup_enabled end,
                 callback = function()
-                    self.fast_lookup_enabled = not self.fast_lookup_enabled
-                    G_reader_settings:saveSetting("typewriter_fast_lookup_enabled", self.fast_lookup_enabled)
-                    if self.fast_lookup_enabled and self.fast_lookup_dict_ifo then
-                        self:openFastLookupDict()
-                    elseif not self.fast_lookup_enabled then
-                        self:closeFastLookupDict()
+                    self.lookup.fast_lookup_enabled = not self.lookup.fast_lookup_enabled
+                    G_reader_settings:saveSetting("typewriter_fast_lookup_enabled", self.lookup.fast_lookup_enabled)
+                    if self.lookup.fast_lookup_enabled and self.lookup.fast_lookup_dict_ifo then
+                        self.lookup:openDict()
+                    elseif not self.lookup.fast_lookup_enabled then
+                        self.lookup:closeDict()
                     end
                 end,
             },
             {
                 text_func = function()
-                    if self._dict_instance then
-                        return _("Dictionary: ") .. self._dict_instance.bookname
-                    elseif self.fast_lookup_dict_ifo then
-                        return _("Dictionary: ") .. self.fast_lookup_dict_ifo
+                    if self.lookup._dict_instance then
+                        return _("Dictionary: ") .. self.lookup._dict_instance.bookname
+                    elseif self.lookup.fast_lookup_dict_ifo then
+                        return _("Dictionary: ") .. self.lookup.fast_lookup_dict_ifo
                     else
                         return _("Select dictionary")
                     end
                 end,
                 callback = function(touchmenu_instance)
-                    self:showDictSelectionDialog(touchmenu_instance)
+                    self.lookup:showDictSelectionDialog(touchmenu_instance)
                 end,
                 keep_menu_open = true,
             },
             {
                 text = _("Set as default dictionary"),
                 callback = function()
-                    if self.fast_lookup_dict_ifo then
-                        G_reader_settings:saveSetting("typewriter_fast_lookup_dict", self.fast_lookup_dict_ifo)
+                    if self.lookup.fast_lookup_dict_ifo then
+                        G_reader_settings:saveSetting("typewriter_fast_lookup_dict", self.lookup.fast_lookup_dict_ifo)
                         local InfoMessage = require("ui/widget/infomessage")
                         UIManager:show(InfoMessage:new{
                             text = _("Dictionary set as default for all books"),
@@ -233,7 +205,8 @@ function Typewriter:addToMainMenu(menu_items)
                     end
                 end,
                 show_func = function()
-                    return self.fast_lookup_dict_ifo ~= nil and self.fast_lookup_dict_ifo ~= G_reader_settings:readSetting("typewriter_fast_lookup_dict")
+                    return self.lookup.fast_lookup_dict_ifo ~= nil
+                       and self.lookup.fast_lookup_dict_ifo ~= G_reader_settings:readSetting("typewriter_fast_lookup_dict")
                 end,
                 keep_menu_open = true,
             },
@@ -241,295 +214,10 @@ function Typewriter:addToMainMenu(menu_items)
     }
 end
 
--- Fast dictionary lookup methods -----------------------------------------------
-
-function Typewriter:getDataDir()
-    return G_defaults:readSetting("STARDICT_DATA_DIR")
-        or os.getenv("STARDICT_DATA_DIR")
-        or DataStorage:getDataDir() .. "/data/dict"
-end
-
-function Typewriter:openFastLookupDict()
-    self:closeFastLookupDict()
-    if not self.fast_lookup_dict_ifo then return end
-
-    local StarDictLookup = require("stardictlookup")
-    local meta = StarDictLookup.parseIfo(self.fast_lookup_dict_ifo)
-    if not meta then
-        logger.warn("Typewriter: failed to parse ifo:", self.fast_lookup_dict_ifo)
-        return
-    end
-    local has_dict, dict_path = StarDictLookup.hasUncompressedDict(self.fast_lookup_dict_ifo)
-    if not has_dict then
-        logger.warn("Typewriter: no uncompressed .dict for:", self.fast_lookup_dict_ifo)
-        return
-    end
-    meta.dict_path = dict_path
-    meta.idx_path = self.fast_lookup_dict_ifo:gsub("%.ifo$", ".idx")
-
-    local instance, err = StarDictLookup.open(meta)
-    if not instance then
-        logger.warn("Typewriter: failed to open dict:", err)
-        return
-    end
-    self._dict_instance = instance
-    logger.dbg("Typewriter: fast lookup dict opened:", instance.bookname, "#entries:", instance.entry_count)
-end
-
-function Typewriter:closeFastLookupDict()
-    if self._dict_instance then
-        self._dict_instance:close()
-        self._dict_instance = nil
-    end
-end
-
-function Typewriter:showDictSelectionDialog(touchmenu_instance)
-    local StarDictLookup = require("stardictlookup")
-    local ButtonDialog = require("ui/widget/buttondialog")
-    local InfoMessage = require("ui/widget/infomessage")
-
-    local data_dir = self:getDataDir()
-    local dicts = StarDictLookup.getAvailableDicts(data_dir)
-
-    if #dicts == 0 then
-        UIManager:show(InfoMessage:new{
-            text = _("No uncompressed StarDict dictionaries found.\nOnly dictionaries with .dict files (not .dict.dz) are supported."),
-        })
-        return
-    end
-
-    local buttons = {}
-    for _, dict in ipairs(dicts) do
-        local is_selected = self.fast_lookup_dict_ifo == dict.ifo_path
-        local label = dict.bookname
-        if is_selected then
-            label = "★ " .. label
-        end
-        if dict.wordcount then
-            label = label .. " (" .. dict.wordcount .. ")"
-        end
-        table.insert(buttons, {{
-            text = label,
-            callback = function()
-                self.fast_lookup_dict_ifo = dict.ifo_path
-                if self.ui.doc_settings then
-                    self.ui.doc_settings:saveSetting("typewriter_fast_lookup_dict", dict.ifo_path)
-                end
-                if self.fast_lookup_enabled then
-                    self:openFastLookupDict()
-                end
-                UIManager:close(self._dict_select_dialog)
-                self._dict_select_dialog = nil
-                if touchmenu_instance then touchmenu_instance:updateItems() end
-            end,
-        }})
-    end
-
-    self._dict_select_dialog = ButtonDialog:new{
-        title = _("Select dictionary for fast lookup"),
-        buttons = buttons,
-    }
-    UIManager:show(self._dict_select_dialog)
-end
-
-function Typewriter:dismissFastLookup()
-    if self._fast_lookup_widget then
-        UIManager:close(self._fast_lookup_widget)
-        self._fast_lookup_widget = nil
-    end
-end
-
-function Typewriter:showFastLookupWidget(word, definition, dict_name, word_box_bottom_y)
-    local screen_h = Screen:getHeight()
-    local position = "bottom"
-    if word_box_bottom_y and word_box_bottom_y > screen_h / 2 then
-        position = "top"
-    end
-
-    self:dismissFastLookup()
-
-    local FastLookupWidget = require("fastlookupwidget")
-    self._fast_lookup_widget = FastLookupWidget:new{
-        word = word,
-        definition = definition,
-        dict_name = dict_name,
-        position = position,
-        word_box_bottom_y = word_box_bottom_y,
-    }
-    UIManager:show(self._fast_lookup_widget)
-end
-
-function Typewriter:getDictionaryText(word)
-    if not word or word == "" then
-        self:dismissFastLookup()
-        return nil, nil
-    end
-
-    -- Clean the word: trim whitespace and punctuation
-    word = word:gsub("^[%s%p]+", ""):gsub("[%s%p]+$", "")
-    if word == "" then
-        self:dismissFastLookup()
-        return nil, nil
-    end
-
-    local entry = self._dict_instance:lookup(word)
-    local definition
-    if entry then
-        definition = self._dict_instance:getDefinitionPreview(entry)
-    end
-
-    return word, definition
-end
-
-function Typewriter:getFootnoteText(link_xpointer, a_xpointer)
-    if not link_xpointer or link_xpointer == "" or not a_xpointer or a_xpointer == "" then
-        return nil
-    end
-
-    -- Setting footnote detection flags (used by cre.cpp in KOReader):
-    -- 0x0001: Prefer interpreting as footnote when uncertain (fallback to true).
-    -- 0x0002: Trust the source xpointer (allows checking element attributes/styles).
-    -- 0x0004: Trust role= and epub:type= attributes.
-    -- 0x0008: Accept classic FB2 footnotes.
-    -- 0x0010: Target must have an anchor (#id), not just a link to an HTML file.
-    -- 0x0040: Target must not be a target of a TOC entry.
-    -- 0x0100: Source link must not be empty content.
-    -- 0x0200: Source node vertical alignment is sub/sup/top/bottom.
-    -- 0x0400: Source node readable text is a number (<=3 digits).
-    -- 0x0800: Source node readable text is 1-2 letters + numbers (e.g. A1).
-    -- 0x1000: Target must not contain, or be contained in, H1..H6 headers.
-    -- 0x4000: Try to extend the footnote boundary after the target to capture all text.
-    -- 0x8000: Limit the extended target readable text to `max_text_size`.
-    local flags = 0x0001 + 0x0002 + 0x0004 + 0x0008 + 0x0010 + 0x0040 + 
-                  0x0100 + 0x0200 + 0x0400 + 0x0800 + 0x1000 + 0x4000 + 0x8000
-    local max_text_size = 10000
-
-    local is_footnote, reason, extStopReason, extStartXP, extEndXP =
-        self.ui.document:isLinkToFootnote(a_xpointer, link_xpointer, flags, max_text_size)
-
-    if not is_footnote then
-        return nil
-    end
-
-    local html
-    if extStartXP and extEndXP then
-        html = self.ui.document:getHTMLFromXPointers(extStartXP, extEndXP, 0x1001)
-    else
-        html = self.ui.document:getHTMLFromXPointer(link_xpointer, 0x1001, true)
-    end
-
-    if not html then
-        return nil
-    end
-
-    local text = html:gsub("<div[^>]*>", "\n")
-                     :gsub("</div>", "\n")
-                     :gsub("<p[^>]*>", "\n")
-                     :gsub("</p>", "\n")
-                     :gsub("<br%s*/?>", "\n")
-                     :gsub("<[^>]+>", " ")
-                     :gsub(" +", " ")
-                     :gsub("\n ", "\n")
-                     :gsub(" \n", "\n")
-                     :gsub("\n+", "\n")
-                     :gsub("^%s+", "")
-                     :gsub("%s+$", "")
-    return text
-end
-
--- Only CRE (EPUB/FB2) documents support xpointer-based word navigation
-function Typewriter:isCREDocument()
-    return self.ui.rolling ~= nil
-end
-
-function Typewriter:getVisibleHeight()
-    if self.ui.view and self.ui.view.visible_area then
-        return self.ui.view.visible_area.h
-    end
-    return Screen:getHeight()
-end
-
-function Typewriter:isXPointerOnScreen(xp)
-    if not xp then return false end
-    return self.ui.document:isXPointerInCurrentPage(xp)
-end
-
-function Typewriter:findFirstWordOnPage()
-    local doc = self.ui.document
-    local top_xp = doc:getXPointer()
-    logger.dbg("Typewriter: findFirstWordOnPage, top_xp=", top_xp)
-    if not top_xp then return nil end
-
-    -- Step one char before page start so getNextVisibleWordStart
-    -- will find a word that begins exactly at the page top
-    local before = doc:getPrevVisibleChar(top_xp)
-    local word_xp
-    if before then
-        word_xp = doc:getNextVisibleWordStart(before)
-    end
-    if word_xp and self:isXPointerOnScreen(word_xp) then
-        return word_xp
-    end
-
-    -- Fallback: search forward from the page-start xpointer
-    word_xp = doc:getNextVisibleWordStart(top_xp)
-    if word_xp and self:isXPointerOnScreen(word_xp) then
-        return word_xp
-    end
-    return nil
-end
-
-function Typewriter:findLastWordOnPage()
-    logger.dbg("Typewriter: findLastWordOnPage")
-    local doc = self.ui.document
-
-    -- getPrevVisibleWordStart always moves strictly backward, so if pos1 from
-    -- getTextFromPositions snaps to an early position on the last line (because the
-    -- bottom-right coordinate falls outside the text area), it returns the wrong word.
-    -- Walk forward from the first visible word instead to reliably find the last one.
-    local cur_xp = self:findFirstWordOnPage()
-    if not cur_xp then return nil end
-
-    local last_xp = cur_xp
-    for _ = 1, 2000 do
-        local next_xp = doc:getNextVisibleWordStart(cur_xp)
-        if not next_xp then
-            logger.dbg("Typewriter: findLastWordOnPage no more words after", cur_xp)
-            break
-        end
-        -- compareXPointers returns 1 if xp2 is after xp1; stop if no forward progress
-        if doc:compareXPointers(cur_xp, next_xp) ~= 1 then
-            logger.dbg("Typewriter: findLastWordOnPage no forward progress from", cur_xp)
-            break
-        end
-        if not self:isXPointerOnScreen(next_xp) then
-            logger.dbg("Typewriter: findLastWordOnPage isXPointerOnScreen returned false for", next_xp)
-            break
-        end
-        last_xp = next_xp
-        cur_xp = next_xp
-    end
-    logger.dbg("Typewriter: findLastWordOnPage', last_xp=", last_xp, "isXPointerOnScreen=", self:isXPointerOnScreen(last_xp))
-    return last_xp
-end
+-- Cursor lifecycle -----------------------------------------------------------
 
 function Typewriter:activateCursor(from_top)
-    logger.dbg("Typewriter: activateCursor, from_top=", from_top)
-    if not self:isCREDocument() then
-        logger.dbg("Typewriter: not a CRE document, skipping")
-        return false
-    end
-
-    local doc = self.ui.document
-    local word_xp = from_top
-        and self:findFirstWordOnPage()
-        or  self:findLastWordOnPage()
-    if not word_xp then return false end
-
-    self.current_word_xp = word_xp
-    self.current_word_end_xp = doc:getNextVisibleWordEnd(word_xp)
-    self.cursor_active = true
-    logger.dbg("Typewriter: cursor activated, word_xp=", word_xp)
+    if not self.cursor:activate(from_top) then return false end
     self:setupKeyEvents()
     self:suppressConflictingKeys()
     self:updateCursorDisplay()
@@ -537,234 +225,146 @@ function Typewriter:activateCursor(from_top)
 end
 
 function Typewriter:deactivateCursor()
-    if not self.cursor_active then return end
-    logger.dbg("Typewriter: deactivateCursor")
-    self.cursor_active = false
-    self.current_word_xp = nil
-    self.current_word_end_xp = nil
-    self._cursor_overlay.visible = false
-    self._cursor_overlay.cursor_rect = nil
-    self._cursor_overlay.word_rects = nil
-    self:dismissFastLookup()
+    if not self.cursor.cursor_active then return end
+    self.cursor:deactivate()
+    self.highlight:reset()
+    self.lookup:dismissWidget()
     self:restoreConflictingKeys()
     self:setupKeyEvents()
-    UIManager:setDirty(self.ui, "ui")
 end
+
+-- Display update (orchestrates cursor, highlight, and lookup) ----------------
 
 function Typewriter:updateCursorDisplay()
-    if not self.cursor_active or not self.current_word_xp then
-        self._cursor_overlay.visible = false
+    local old_geom = self.cursor:getOverlayGeom()
+
+    if not self.cursor.cursor_active or not self.cursor.current_word_xp then
+        self.cursor:hideOverlay(old_geom)
         return
     end
 
+    local word_info, screen_x, screen_y = self.cursor:getWordInfoAtCursor()
+    if not word_info or not word_info.sbox then
+        self.cursor:updateOverlay(nil, nil, old_geom, false)
+        self.lookup:dismissWidget()
+        return
+    end
+
+    -- Compute screen boxes (respects highlight range if active)
+    local sboxes = self.highlight:getWordScreenBoxes(
+        word_info,
+        self.cursor.current_word_xp,
+        self.cursor.current_word_end_xp
+    )
+    self.cursor:updateOverlay(word_info, sboxes, old_geom, self.highlight.highlighting_active)
+
+    -- Hide fast lookup while highlighting
+    if self.highlight.highlighting_active then
+        self.lookup:dismissWidget()
+        return
+    end
+
+    self:updateLookupContent(word_info, screen_x, screen_y, sboxes)
+end
+
+--- Update the fast lookup widget content based on the word under cursor.
+function Typewriter:updateLookupContent(word_info, screen_x, screen_y, sboxes)
     local doc = self.ui.document
-    local screen_y, screen_x = doc:getScreenPositionFromXPointer(self.current_word_xp)
-    logger.dbg("Typewriter: updateCursorDisplay, screen_x=", screen_x, "screen_y=", screen_y, "word_xp=", self.current_word_xp, "word=", doc:getTextFromXPointer(self.current_word_xp))
-    if not screen_y or not screen_x then
-        self._cursor_overlay.visible = false
-        return
-    end
+    local first_rect = sboxes and sboxes[1] or word_info.sbox
+    local bottom_y = first_rect.y + first_rect.h
 
-    self._cursor_overlay.visible = true
-    UIManager:setDirty(self.ui, "ui")
-    local word_info = doc:getWordFromPosition({x = screen_x, y = screen_y}, true)
-
-    if not (word_info and word_info.sbox) then
-        logger.dbg("Typewriter: updateCursorDisplay no word at screen pos", screen_x, screen_y)
-        local h = Screen:scaleBySize(20)
-        self._cursor_overlay.cursor_rect = { x = screen_x, y = screen_y, h = h }
-        self._cursor_overlay.word_rects = nil
-        self:dismissFastLookup()
-        return
-    end
-
-    local s = word_info.sbox
-    logger.dbg("Typewriter: updateCursorDisplay word=", word_info.word,
-        "box x=", s.x, "y=", s.y, "w=", s.w, "h=", s.h)
-
-    local sboxes
-    if word_info.pos0 and word_info.pos1 and doc.getScreenBoxesFromPositions then
-        sboxes = doc:getScreenBoxesFromPositions(word_info.pos0, word_info.pos1, true)
-    end
-    if not sboxes or #sboxes == 0 then
-        sboxes = { s }
-    end
-
-    local first_rect = sboxes[1]
-    self._cursor_overlay.cursor_rect = { x = first_rect.x, y = first_rect.y, h = first_rect.h }
-    self._cursor_overlay.word_rects = sboxes
-    
-    -- Try getting footnote text
-    local footnote_text = nil
+    -- Try footnote text first
     local link_xpointer, a_xpointer = doc:getLinkFromPosition({x = screen_x, y = screen_y})
     if link_xpointer and link_xpointer ~= "" and a_xpointer and a_xpointer ~= "" then
-        footnote_text = self:getFootnoteText(link_xpointer, a_xpointer)
+        local footnote_text = self.lookup:getFootnoteText(link_xpointer, a_xpointer)
+        if footnote_text then
+            logger.dbg("Typewriter: footnote found")
+            self.lookup:showWidget(_("Footnote"), footnote_text, nil, bottom_y)
+            return
+        end
     end
 
-    if footnote_text then
-        logger.dbg("Typewriter: updateCursorDisplay footnote_text=", footnote_text)
-        self:showFastLookupWidget(_("Footnote"), footnote_text, nil, s.y + s.h)
+    -- Try dictionary lookup
+    if not self.lookup.fast_lookup_enabled or not self.lookup._dict_instance then
         return
     end
 
-    -- Try getting dictionary text
-    if not self.fast_lookup_enabled or not self._dict_instance then 
-        logger.dbg("Typewriter: updateCursorDisplay fast lookup disabled or no dict instance")
-        return 
-    end
-
-    local entry, definition = self:getDictionaryText(word_info.word)
-    if entry == nil or definition == nil then
-        logger.dbg("Typewriter: updateCursorDisplay no dictionary entry found for word", word_info.word)
-        self:dismissFastLookup()
+    local entry, definition = self.lookup:lookupWord(word_info.word)
+    if not entry or not definition then
+        self.lookup:dismissWidget()
         return
     end
 
-    self:showFastLookupWidget(entry, definition, self._dict_instance.bookname, s.y + s.h)
+    self.lookup:showWidget(entry, definition, self.lookup._dict_instance.bookname, bottom_y)
 end
 
-function Typewriter:openWordContextMenu()
-    if not self.cursor_active or not self.current_word_xp then return end
-    logger.dbg("Typewriter: openWordContextMenu")
+-- Navigation helpers (delegate to cursor, handle page turns & deactivation) --
 
-    local doc = self.ui.document
-    local screen_y, screen_x = doc:getScreenPositionFromXPointer(self.current_word_xp)
-    if not screen_y or not screen_x then
-        logger.dbg("Typewriter: openWordContextMenu no screen pos")
+function Typewriter:moveOnSameLine(direction)
+    if not self.cursor.cursor_active then return end
+
+    local result = self.cursor:moveToWordOnSameLine(direction)
+    if result == "moved" then
+        self:updateCursorDisplay()
         return
     end
 
-    local word_info = doc:getWordFromPosition({x = screen_x, y = screen_y}, true)
-    if not word_info or not word_info.sbox then
-        logger.dbg("Typewriter: openWordContextMenu no word at pos")
+    -- Off-screen: try page turn during highlighting, otherwise deactivate
+    if self.highlight.highlighting_active and self.cursor:goToNextPage(direction) then
         return
     end
-    logger.dbg("Typewriter: opening context menu for word:", word_info.word)
-
-    local cx = word_info.sbox.x + word_info.sbox.w / 2
-    local cy = word_info.sbox.y + word_info.sbox.h / 2
-    local pos = Geom:new{x = cx, y = cy, w = 0, h = 0}
-
-    -- Deactivate cursor before showing the menu
+    logger.dbg("Typewriter: moveOnSameLine off-screen, deactivating")
     self:deactivateCursor()
-
-    -- Simulate hold + release to trigger the default word context menu
-    self.ui.highlight:onHold(nil, {
-        ges = "hold", pos = pos, time = time.realtime(),
-    })
-    self.ui.highlight:onHoldRelease(nil, {
-        ges = "hold_release", pos = pos, time = time.realtime(),
-    })
 end
 
-function Typewriter:moveToWordOnSameLine(direction)
-    if not self.cursor_active or not self.current_word_xp then return end
-    local doc = self.ui.document
-    local next_xp
-    if direction == 'right' then
-        next_xp = doc:getNextVisibleWordStart(self.current_word_xp)
-        -- If stuck at same position, try advancing from word end
-        if next_xp and self.current_word_end_xp
-           and doc:compareXPointers(self.current_word_xp, next_xp) ~= 1 then
-            logger.dbg("Typewriter: moveToWordOnSameLine stuck at same word, trying from word end")
-            next_xp = doc:getNextVisibleWordStart(self.current_word_end_xp)
-        end
-    elseif direction == 'left' then
-        next_xp = doc:getPrevVisibleWordStart(self.current_word_xp)
-    end
+function Typewriter:moveOnNextLine(direction)
+    if not self.cursor.cursor_active then return end
 
-    if not next_xp or not self:isXPointerOnScreen(next_xp) then
-        logger.dbg("Typewriter: moveToWordOnSameLine off-screen or nil, deactivating")
-        self:deactivateCursor()
+    local result = self.cursor:moveToWordOnNextLine(direction)
+    if result == "moved" then
+        self:updateCursorDisplay()
         return
     end
 
-    logger.dbg("Typewriter: moveToWordOnSameLine to", next_xp, "word=", doc:getTextFromXPointer(next_xp))
-    self.current_word_xp = next_xp
-    self.current_word_end_xp = doc:getNextVisibleWordEnd(next_xp)
-    self:updateCursorDisplay()
-end
-
-function Typewriter:moveToWordOnNextLine(direction)
-    if not self.cursor_active or not self.current_word_xp then return end
-    local doc = self.ui.document
-
-    local screen_y, screen_x = doc:getScreenPositionFromXPointer(self.current_word_xp)
-    if not screen_y or not screen_x then return end
-
-    local cur_info = doc:getWordFromPosition({x = screen_x, y = screen_y}, true)
-    if not cur_info or not cur_info.sbox then return end
-
-    local first_box = cur_info.sbox
-    if cur_info.pos0 and cur_info.pos1 and doc.getScreenBoxesFromPositions then
-        local sboxes = doc:getScreenBoxesFromPositions(cur_info.pos0, cur_info.pos1, true)
-        if sboxes and #sboxes > 0 then
-            first_box = sboxes[1]
-        end
-    end
-    local cx = first_box.x + math.floor(first_box.w / 2)
-
-    -- Try progressively larger steps until the probe lands on a
-    -- word whose sbox.y is clearly above/below the current line.
-    local next_info
-    for _, dy in ipairs({first_box.h, math.floor(first_box.h * 1.5), first_box.h * 2, math.floor(first_box.h * 2.5), first_box.h * 3 }) do
-        local next_y = first_box.y + dy
-        if direction == "up" then
-            next_y = first_box.y - dy
-        end
-        local probe = doc:getWordFromPosition({x = cx, y = next_y}, true)
-        if probe and probe.sbox and probe.pos0 and
-           (direction == "down" and probe.sbox.y > first_box.y or
-            direction == "up" and probe.sbox.y < first_box.y) and
-           self:isXPointerOnScreen(probe.pos0) then
-            next_info = probe
-            break
-        end
-    end
-
-    if not next_info then
-        logger.dbg("Typewriter: moveToWordOnNextLine no next-line word found, deactivating")
-        self:deactivateCursor()
+    -- No next-line word: try page turn during highlighting, otherwise deactivate
+    if self.highlight.highlighting_active and self.cursor:goToNextPage(direction) then
         return
     end
-
-    logger.dbg("Typewriter: moveToWordOnNextLine to", next_info.pos0, "word=", next_info.word)
-    self.current_word_xp = next_info.pos0
-    self.current_word_end_xp = doc:getNextVisibleWordEnd(next_info.pos0)
-    self:updateCursorDisplay()
+    logger.dbg("Typewriter: moveOnNextLine no target, deactivating")
+    self:deactivateCursor()
 end
 
--- Key event handlers -------------------------------------------------------
+-- Key event handlers ---------------------------------------------------------
 
 function Typewriter:onTypewriterDown()
-    logger.dbg("Typewriter: onTypewriterDown, cursor_active=", self.cursor_active)
-    if not self.cursor_active then
+    logger.dbg("Typewriter: onTypewriterDown, cursor_active=", self.cursor.cursor_active)
+    if not self.cursor.cursor_active then
         return self:activateCursor(true) -- cursor at first word
     end
-    self:moveToWordOnNextLine('down')
+    self:moveOnNextLine("down")
     return true
 end
 
 function Typewriter:onTypewriterUp()
-    logger.dbg("Typewriter: onTypewriterUp, cursor_active=", self.cursor_active)
-    if not self.cursor_active then
+    logger.dbg("Typewriter: onTypewriterUp, cursor_active=", self.cursor.cursor_active)
+    if not self.cursor.cursor_active then
         return self:activateCursor(false) -- cursor at last word
     end
-    self:moveToWordOnNextLine('up')
+    self:moveOnNextLine("up")
     return true
 end
 
 function Typewriter:onTypewriterLeft()
-    if self.cursor_active then
-        self:moveToWordOnSameLine('left')
+    if self.cursor.cursor_active then
+        self:moveOnSameLine("left")
         return true
     end
     return false
 end
 
 function Typewriter:onTypewriterRight()
-    if self.cursor_active then
-        self:moveToWordOnSameLine('right')
+    if self.cursor.cursor_active then
+        self:moveOnSameLine("right")
         return true
     end
     return false
@@ -772,7 +372,7 @@ end
 
 function Typewriter:onTypewriterBack()
     logger.dbg("Typewriter: onTypewriterBack")
-    if self.cursor_active then
+    if self.cursor.cursor_active then
         self:deactivateCursor()
         return true
     end
@@ -780,30 +380,50 @@ function Typewriter:onTypewriterBack()
 end
 
 function Typewriter:onTypewriterPress()
-    if self.cursor_active then
-        self:openWordContextMenu()
+    if not self.cursor.cursor_active then
+        return false
+    end
+
+    if not self.highlight.highlighting_active then
+        self.highlight:startAt(self.cursor.current_word_xp)
+        self:updateCursorDisplay()
         return true
     end
-    return false
+
+    if self.highlight:openSelectionContextMenu(self.cursor) then
+        self:deactivateCursor()
+        return true
+    end
+
+    self.highlight:openWordContextMenu(self.cursor)
+    self:deactivateCursor()
+    return true
 end
 
--- Deactivate on page/position changes -------------------------------------
+-- Page/position change handlers ----------------------------------------------
 
 function Typewriter:onPageUpdate()
-    if self.cursor_active then
+    if self.cursor._turning_page_direction then
+        if self.cursor:recoverAfterPageTurn() then
+            self:updateCursorDisplay()
+        else
+            self:deactivateCursor()
+        end
+    elseif self.cursor.cursor_active then
         self:deactivateCursor()
     end
 end
 
 function Typewriter:onUpdatePos()
-    if self.cursor_active then
+    if self.cursor._turning_page_direction then return end
+    if self.cursor.cursor_active then
         self:deactivateCursor()
     end
 end
 
 function Typewriter:onCloseDocument()
     self:deactivateCursor()
-    self:closeFastLookupDict()
+    self.lookup:closeDict()
 end
 
 return Typewriter

@@ -26,9 +26,8 @@ local FastLookupWidget = InputContainer:extend{
     word = nil,
     definition = nil,
     dict_name = nil,
-    -- "bottom" or "top"
-    position = "bottom",
-    -- Set by caller to avoid obscuring the highlighted word
+    -- Y coordinate of the bottom of the highlighted word box;
+    -- used to decide whether to show the widget at top or bottom of screen.
     word_box_bottom_y = nil,
     -- Mark as toast so we never block event propagation to widgets below us
     toast = true,
@@ -93,8 +92,8 @@ function FastLookupWidget:init()
 
     local frame_h = self.frame:getSize().h
 
-    -- Decide position: if the word is in the bottom half, show at top; otherwise bottom.
-    if self.position == "top" or (self.word_box_bottom_y and self.word_box_bottom_y > screen_h / 2) then
+    -- Show at top if the word is in the bottom half of the screen; otherwise bottom.
+    if self.word_box_bottom_y and self.word_box_bottom_y > screen_h / 2 then
         -- Show at top
         self[1] = VerticalGroup:new{
             align = "center",
@@ -127,8 +126,6 @@ function FastLookupWidget:onCloseWidget()
     end)
 end
 
-function FastLookupWidget:dismiss()
-    UIManager:close(self)
-end
+
 
 return FastLookupWidget
