@@ -23,12 +23,11 @@ local HtmlUtil = require("htmlutil")
 -- 0x0200: Source node vertical alignment is sub/sup/top/bottom.
 -- 0x0400: Source node readable text is a number (<=3 digits).
 -- 0x0800: Source node readable text is 1-2 letters + numbers (e.g. A1).
--- 0x1000: Target must not contain, or be contained in, H1..H6 headers.
 -- 0x4000: Try to extend the footnote boundary after the target to capture all text.
 -- 0x8000: Limit the extended target readable text to `max_text_size`.
 local FOOTNOTE_FLAGS = 0x0001 + 0x0002 + 0x0004 + 0x0008 + 0x0010
                      + 0x0040 + 0x0100 + 0x0200 + 0x0400 + 0x0800
-                     + 0x1000 + 0x4000 + 0x8000
+                     + 0x4000 + 0x8000
 
 --- Maximum number of characters to extract from a footnote target.
 local MAX_FOOTNOTE_TEXT_SIZE = 10000
@@ -188,6 +187,10 @@ end
 function FastLookupController:getFootnoteText(link_xpointer, a_xpointer)
     if not link_xpointer or link_xpointer == ""
        or not a_xpointer or a_xpointer == "" then
+        return nil
+    end
+
+    if link_xpointer:match("^https?://") then
         return nil
     end
 
