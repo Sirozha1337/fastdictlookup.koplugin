@@ -89,6 +89,8 @@ All settings use the `typewriter_` prefix (legacy naming preserved for backward 
 | Setting Key                      | Scope             | Description                        |
 | -------------------------------- | ----------------- | ---------------------------------- |
 | `typewriter_mode_enabled`        | Global            | Cursor mode on/off                 |
+| `typewriter_highlighting_enabled` | Global            | Text highlighting mode on/off (default: true) |
+| `typewriter_override_lookup_menu` | Global            | Direct full definition view on single word lookup (default: false) |
 | `typewriter_fast_lookup_enabled` | Global            | Live dictionary preview on/off     |
 | `typewriter_fast_lookup_dict`    | Global + per-book | `.ifo` path of selected dictionary |
 

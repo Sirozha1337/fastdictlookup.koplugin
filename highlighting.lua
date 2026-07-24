@@ -15,6 +15,7 @@ HighlightController.__index = HighlightController
 function HighlightController:new(ui)
     local o = setmetatable({}, self)
     o.ui = ui
+    o.highlighting_enabled = true
     o.highlighting_active = false
     o.highlight_start_xp = nil
     return o
@@ -116,9 +117,10 @@ function HighlightController:openSelectionContextMenu(cursor)
     return true
 end
 
---- Open the default word context menu (hold gesture simulation).
+--- Open the default word context menu or full definition view.
 -- @param cursor CursorNavigator  The cursor module.
-function HighlightController:openWordContextMenu(cursor)
+-- @param lookup FastLookupController Optional fast lookup controller.
+function HighlightController:openWordContextMenu(cursor, lookup)
     if not cursor.cursor_active or not cursor.current_word_xp then return end
     logger.dbg("HighlightController: openWordContextMenu")
 
@@ -130,6 +132,12 @@ function HighlightController:openWordContextMenu(cursor)
     if not word_info or not word_info.sbox then return end
     logger.dbg("HighlightController: context menu for word:", word_info.word)
 
+    if lookup and lookup.override_lookup_menu then
+        if lookup:showFullDefinition(word_info.word) then
+            return true
+        end
+    end
+
     local pos = Geom:new{x = screen_x, y = screen_y, w = 0, h = 0}
 
     -- Simulate hold + release to trigger the default word context menu
@@ -139,6 +147,7 @@ function HighlightController:openWordContextMenu(cursor)
     self.ui.highlight:onHoldRelease(nil, {
         ges = "hold_release", pos = pos, time = time.realtime(),
     })
+    return true
 end
 
 return HighlightController

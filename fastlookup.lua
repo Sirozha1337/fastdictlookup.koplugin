@@ -42,10 +42,14 @@ function FastLookupController:new(ui)
     local o = setmetatable({}, self)
     o.ui = ui
     o.fast_lookup_enabled = false
+    o.override_lookup_menu = false
     o.fast_lookup_dict_ifo = nil
     o._dict_instance = nil
     o._fast_lookup_widget = nil
     o._dict_select_dialog = nil
+    o._last_word = nil
+    o._last_definition = nil
+    o._last_dict_name = nil
     return o
 end
 
@@ -148,11 +152,18 @@ function FastLookupController:dismissWidget()
         UIManager:close(self._fast_lookup_widget)
         self._fast_lookup_widget = nil
     end
+    self._last_word = nil
+    self._last_definition = nil
+    self._last_dict_name = nil
 end
 
 --- Show the floating lookup widget with word and definition.
 function FastLookupController:showWidget(word, definition, dict_name, word_box_bottom_y)
     self:dismissWidget()
+
+    self._last_word = word
+    self._last_definition = definition
+    self._last_dict_name = dict_name
 
     local FastLookupWidget = require("fastlookupwidget")
     self._fast_lookup_widget = FastLookupWidget:new{
@@ -210,6 +221,44 @@ function FastLookupController:getFootnoteText(link_xpointer, a_xpointer)
     if not html then return nil end
 
     return HtmlUtil.stripHtml(html)
+end
+
+--- Show the full definition or footnote in a TextViewer dialog.
+-- @param word string The word to look up.
+-- @return boolean true if definition was shown
+function FastLookupController:showFullDefinition(word)
+    local title, text
+    local clean_word = word and word:gsub("^[%s%p]+", ""):gsub("[%s%p]+$", "")
+
+    if self._last_definition and self._last_word
+       and (self._last_word == word or self._last_word == clean_word or self._last_word == _("Footnote")) then
+        if self._last_dict_name then
+            title = self._last_word .. " (" .. self._last_dict_name .. ")"
+        else
+            title = self._last_word
+        end
+        text = self._last_definition
+    elseif word then
+        if self._dict_instance then
+            local entry, definition = self:lookupWord(word)
+            if entry and definition then
+                title = self._dict_instance.bookname and (entry .. " (" .. self._dict_instance.bookname .. ")") or entry
+                text = definition
+            end
+        end
+    end
+
+    if not text then return false end
+
+    self:dismissWidget()
+
+    local TextViewer = require("ui/widget/textviewer")
+    local textviewer = TextViewer:new{
+        title = title,
+        text = text,
+    }
+    UIManager:show(textviewer)
+    return true
 end
 
 return FastLookupController

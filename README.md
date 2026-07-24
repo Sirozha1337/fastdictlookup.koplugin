@@ -23,7 +23,7 @@ A [KOReader](https://github.com/koreader/koreader) plugin for fast dictionary lo
 
 You can use [UpdatesManager](https://github.com/advokatb/updatesmanager.koplugin) plugin to update this plugin from KOReader directly.
 
-## ▶️ Enabling the plugin
+## ⚙️ Enabling the plugin
 
 1. Start **KOReader**.
 2. Open the **Top Settings menu**
@@ -33,14 +33,22 @@ You can use [UpdatesManager](https://github.com/advokatb/updatesmanager.koplugin
 6. Open the book
 7. Open the **Top Settings menu**
 8. Go to **Search** (icon with magnifying glass)
-9. Enable **Typewriter Cursor Mode**
-10. Enter **Fast Dictionary Lookup** to setup dictionary
-11. Wait for the dictionary to load (usually less than 30 seconds, depends on the size of the dictionary)
-12. Use **Up/Down** arrow keys to enter **Typewriter Cursor Mode**
-13. Move cursor with arrows and instantly see word definitions from your selected dictionary
-14. Move cursor to the end/beginning of the page or press **Back** button to exit
+9. Enter **Fast Dictionary Lookup** to configure the plugin
 
-**Note**: dictionaries are read from the default KOReader's dictionary folder: `koreadeader/data/dict/`
+- **Enable Typewriter Cursor Mode**: Enables or disables hardware key word-by-word cursor navigation mode.
+- **Enable Highlighting**: Enables text range selection mode when pressing **OK** on a word. If disabled, pressing **OK** directly opens the word definition or context menu.
+- **Override Default Lookup Menu**: When enabled, pressing **OK** opens the full dictionary definition in a scrollable view instead of KOReader's native word context menu.
+- **Enable Fast Dictionary Lookup**: Toggles the live preview widget showing word definitions or footnotes while moving the cursor.
+- **Select dictionary**: Choose the active StarDict dictionary for word lookups.
+- **Set as default dictionary**: Set the current dictionary as default across all books.
+
+**Note**: Dictionaries are loaded from KOReader's standard dictionary folder: `koreader/data/dict/`
+
+## ▶️ Usage
+
+1. Use **Up/Down** arrow keys to enter **Typewriter Cursor Mode**
+2. Move cursor with arrows and instantly see word definitions from your selected dictionary
+3. Move cursor to the end/beginning of the page or press **Back** button to exit
 
 ## 📱 Compatibility
 
@@ -71,7 +79,6 @@ Notes for consideration:
 
 Since the plugin targets mainly my Kindle (which is Kindle 4 NonTouch from 2012), those features would need careful consideration as to whether the device is powerful enough handle it.
 
-- Replace default lookup menu opened on tap/enter with fastlookup
 - Use multiple dictionaries at the same time
 - Load dictionary depending on book language
 - Handle html/markdown data in dictionary

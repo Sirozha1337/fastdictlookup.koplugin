@@ -34,9 +34,11 @@ function Typewriter:init()
     end
 
     self.enabled = G_reader_settings:isTrue("typewriter_mode_enabled")
+    self.highlight.highlighting_enabled = G_reader_settings:nilOrTrue("typewriter_highlighting_enabled")
 
     -- Fast lookup settings
     self.lookup.fast_lookup_enabled = G_reader_settings:isTrue("typewriter_fast_lookup_enabled")
+    self.lookup.override_lookup_menu = G_reader_settings:isTrue("typewriter_override_lookup_menu")
     local doc_dict = self.ui.doc_settings and self.ui.doc_settings:readSetting("typewriter_fast_lookup_dict")
     self.lookup.fast_lookup_dict_ifo = doc_dict or G_reader_settings:readSetting("typewriter_fast_lookup_dict")
     if self.lookup.fast_lookup_enabled and self.lookup.fast_lookup_dict_ifo then
@@ -147,25 +149,47 @@ end
 -- Menu -----------------------------------------------------------------------
 
 function Typewriter:addToMainMenu(menu_items)
-    menu_items.typewriter = {
-        text = _("Typewriter Cursor Mode"),
-        checked_func = function() return self.enabled end,
-        sorting_hint = "search",
-        callback = function()
-            self.enabled = not self.enabled
-            G_reader_settings:saveSetting("typewriter_mode_enabled", self.enabled)
-            if not self.enabled then
-                self:deactivateCursor()
-            end
-            self:setupKeyEvents()
-        end,
-    }
     menu_items.typewriter_fast_lookup = {
         text = _("Fast Dictionary Lookup Settings"),
         sorting_hint = "search",
         sub_item_table = {
             {
+                text = _("Enable Typewriter Cursor Mode"),
+                checked_func = function() return self.enabled end,
+                callback = function()
+                    self.enabled = not self.enabled
+                    G_reader_settings:saveSetting("typewriter_mode_enabled", self.enabled)
+                    if not self.enabled then
+                        self:deactivateCursor()
+                    end
+                    self:setupKeyEvents()
+                end,
+            },
+            {
+                text = _("Enable Highlighting"),
+                enabled_func = function() return self.enabled end,
+                checked_func = function() return self.highlight.highlighting_enabled end,
+                callback = function()
+                    self.highlight.highlighting_enabled = not self.highlight.highlighting_enabled
+                    G_reader_settings:saveSetting("typewriter_highlighting_enabled", self.highlight.highlighting_enabled)
+                    if not self.highlight.highlighting_enabled and self.highlight.highlighting_active then
+                        self.highlight:reset()
+                        self:updateCursorDisplay()
+                    end
+                end,
+            },
+            {
+                text = _("Override Default Lookup Menu"),
+                enabled_func = function() return self.enabled end,
+                checked_func = function() return self.lookup.override_lookup_menu end,
+                callback = function()
+                    self.lookup.override_lookup_menu = not self.lookup.override_lookup_menu
+                    G_reader_settings:saveSetting("typewriter_override_lookup_menu", self.lookup.override_lookup_menu)
+                end,
+            },
+            {
                 text = _("Enable Fast Dictionary Lookup"),
+                enabled_func = function() return self.enabled end,
                 checked_func = function() return self.lookup.fast_lookup_enabled end,
                 callback = function()
                     self.lookup.fast_lookup_enabled = not self.lookup.fast_lookup_enabled
@@ -178,6 +202,7 @@ function Typewriter:addToMainMenu(menu_items)
                 end,
             },
             {
+                enabled_func = function() return self.enabled end,
                 text_func = function()
                     if self.lookup._dict_instance then
                         return _("Dictionary: ") .. self.lookup._dict_instance.bookname
@@ -194,6 +219,7 @@ function Typewriter:addToMainMenu(menu_items)
             },
             {
                 text = _("Set as default dictionary"),
+                enabled_func = function() return self.enabled end,
                 callback = function()
                     if self.lookup.fast_lookup_dict_ifo then
                         G_reader_settings:saveSetting("typewriter_fast_lookup_dict", self.lookup.fast_lookup_dict_ifo)
@@ -384,6 +410,12 @@ function Typewriter:onTypewriterPress()
         return false
     end
 
+    if not self.highlight.highlighting_enabled then
+        self.highlight:openWordContextMenu(self.cursor, self.lookup)
+        self:deactivateCursor()
+        return true
+    end
+
     if not self.highlight.highlighting_active then
         self.highlight:startAt(self.cursor.current_word_xp)
         self:updateCursorDisplay()
@@ -395,7 +427,7 @@ function Typewriter:onTypewriterPress()
         return true
     end
 
-    self.highlight:openWordContextMenu(self.cursor)
+    self.highlight:openWordContextMenu(self.cursor, self.lookup)
     self:deactivateCursor()
     return true
 end
