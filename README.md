@@ -9,6 +9,10 @@ A [KOReader](https://github.com/koreader/koreader) plugin for fast dictionary lo
 - moving a cursor over a footnote link, immediately displays its content
 - highlighting mode: press button to start highlighting, press again to open context menu and save your notes
 
+## ⚠️ Versions & Compatibility
+
+- Versions prior to 1.5 are not compatible with KOReader 2026.07 and newer
+
 ## 💾 Installation
 
 1. Download latest release from [Releases](https://github.com/Sirozha1337/fastdictlookup.koplugin/releases/latest)

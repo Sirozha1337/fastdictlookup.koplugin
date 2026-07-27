@@ -66,17 +66,26 @@ local function seq_matches_bare_key(seq, key_set)
     return false
 end
 
--- When cursor is active, mark conflicting key_events on sibling modules
--- as inactive so they don't consume Left/Right/Up/Down/Press before us.
+-- When typewriter mode is enabled, mark conflicting key_events on sibling modules
+-- as inactive so they don't consume Up/Down (when inactive) or Left/Right/Up/Down/Press/Back
+-- (when active) before us.
 function Typewriter:suppressConflictingKeys()
-    local dominated = { Left = true, Right = true, Up = true, Down = true, Press = true }
-    -- Also suppress Back keys so we handle exit ourselves
-    if Device.input.group.Back then
-        for _, k in ipairs(Device.input.group.Back) do
-            dominated[k] = true
+    local dominated = {}
+    if self.cursor.cursor_active then
+        dominated = { Left = true, Right = true, Up = true, Down = true, Press = true }
+        if Device.input.group.Back then
+            for _, k in ipairs(Device.input.group.Back) do
+                dominated[k] = true
+            end
         end
+    elseif self.enabled then
+        dominated = { Up = true, Down = true }
+    else
+        self:restoreConflictingKeys()
+        return
     end
 
+    self:restoreConflictingKeys()
     self._suppressed_events = {}
 
     -- Check children of ReaderUI (sibling modules)
@@ -126,7 +135,10 @@ end
 
 function Typewriter:setupKeyEvents()
     self.key_events = {}
-    if not self.enabled or not Device:hasKeys() then return end
+    if not self.enabled or not Device:hasKeys() then
+        self:restoreConflictingKeys()
+        return
+    end
     logger.dbg("Typewriter: setupKeyEvents, cursor_active=", self.cursor.cursor_active)
 
     if self.cursor.cursor_active then
@@ -144,6 +156,8 @@ function Typewriter:setupKeyEvents()
             TypewriterUp   = { { "Up" } },
         }
     end
+
+    self:suppressConflictingKeys()
 end
 
 -- Menu -----------------------------------------------------------------------
@@ -245,7 +259,6 @@ end
 function Typewriter:activateCursor(from_top)
     if not self.cursor:activate(from_top) then return false end
     self:setupKeyEvents()
-    self:suppressConflictingKeys()
     self:updateCursorDisplay()
     return true
 end
@@ -255,7 +268,6 @@ function Typewriter:deactivateCursor()
     self.cursor:deactivate()
     self.highlight:reset()
     self.lookup:dismissWidget()
-    self:restoreConflictingKeys()
     self:setupKeyEvents()
 end
 
@@ -312,6 +324,7 @@ function Typewriter:updateLookupContent(word_info, screen_x, screen_y, sboxes)
 
     -- Try dictionary lookup
     if not self.lookup.fast_lookup_enabled or not self.lookup._dict_instance then
+        self.lookup:dismissWidget()
         return
     end
 
