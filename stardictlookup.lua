@@ -215,7 +215,7 @@ function DictInstance:lookup(word)
         -- Read null-terminated word directly from mmap
         local word_end = entry_pos
         while data[word_end] ~= 0 do word_end = word_end + 1 end
-        local entry_word = ffi.string(data + entry_pos, word_end - entry_pos)
+        local entry_word = ffi.string(data + entry_pos, word_end - entry_pos):lower()
 
         if entry_word == target then
             -- Read the 8 metadata bytes after the null terminator
