@@ -196,28 +196,6 @@ function StarDictLookup.open(meta)
     return self
 end
 
---- Perform a stardict string comparison
--- Duplicate the behavior of `stardict_strcmp`: case insensitive comparison
--- first, then case sensitive if the case insensitive comparison is equal
--- see: https://github.com/huzheng001/stardict-3/blob/master/lib/src/libcommon.cpp#L43
-function DictInstance:stardictStrcmp(one, two)
-    local one_lower = one:lower()
-    local two_lower = two:lower()
-    if one_lower == two_lower then
-        if one == two then
-            return 0
-        elseif one < two then
-            return -1
-        else
-            return 1
-        end
-    elseif one_lower < two_lower then
-        return -1
-    else
-        return 1
-    end
-end
-
 --- Binary search for a word (case-insensitive).
 -- Reads words directly from the mmap'd index on the fly — only ~17
 -- temporary strings for a 400K-entry dictionary.
@@ -237,12 +215,9 @@ function DictInstance:lookup(word)
         -- Read null-terminated word directly from mmap
         local word_end = entry_pos
         while data[word_end] ~= 0 do word_end = word_end + 1 end
-        local entry_word = ffi.string(data + entry_pos, word_end - entry_pos)
+        local entry_word = ffi.string(data + entry_pos, word_end - entry_pos):lower()
 
-        -- Stardict format requires special comparison for binary search
-        local comparison_result = self:stardictStrcmp(entry_word, target)
-
-        if comparison_result == 0 then
+        if entry_word == target then
             -- Read the 8 metadata bytes after the null terminator
             local mp = word_end + 1
             local offset = bit.bor(
@@ -258,7 +233,7 @@ function DictInstance:lookup(word)
                 data[mp + 7]
             )
             return { word = entry_word, offset = offset, size = data_size }
-        elseif comparison_result < 0 then
+        elseif entry_word < target then
             lo = mid + 1
         else
             hi = mid - 1
