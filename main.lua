@@ -312,9 +312,9 @@ function Typewriter:updateLookupContent(word_info, screen_x, screen_y, sboxes)
     local bottom_y = first_rect.y + first_rect.h
 
     -- Try footnote text first
-    local link_xpointer, a_xpointer = doc:getLinkFromPosition({x = screen_x, y = screen_y})
-    if link_xpointer and link_xpointer ~= "" and a_xpointer and a_xpointer ~= "" then
-        local footnote_text = self.lookup:getFootnoteText(link_xpointer, a_xpointer)
+    local link = self:getLinkAtCursor(word_info)
+    if link and link.a_xpointer and link.a_xpointer ~= "" then
+        local footnote_text = self.lookup:getFootnoteText(link.xpointer, link.a_xpointer)
         if footnote_text then
             logger.dbg("Typewriter: footnote found")
             self.lookup:showWidget(_("Footnote"), footnote_text, nil, bottom_y)
@@ -418,14 +418,70 @@ function Typewriter:onTypewriterBack()
     return false
 end
 
+--- Build a link table in the format accepted by ReaderLink:onGotoLink.
+local function makeLink(target, a_xpointer)
+    return { xpointer = target, marker_xpointer = target, a_xpointer = a_xpointer }
+end
+
+--- Get the link containing the cursor word.
+-- Matches the word xpointer against the <a> elements of the current page's
+-- links. Screen hit-testing (getLinkFromPosition) misses some links entirely,
+-- e.g. a <p><a> TOC heading followed by sibling <div> blocks, so it is only
+-- used as a fallback.
+-- @param word_info table|nil Word info for the cursor word (for the fallback).
+-- @return table|nil Link table accepted by ReaderLink:onGotoLink, or nil.
+function Typewriter:getLinkAtCursor(word_info)
+    local word_xp = self.cursor.current_word_xp
+    if not word_xp then return nil end
+    local doc = self.ui.document
+
+    for _i, page_link in ipairs(doc:getPageLinks() or {}) do
+        -- a_xpointer points at the <a> element itself, e.g. ".../p/a.0"
+        local a_xp = page_link.a_xpointer
+        local a_path = a_xp and a_xp:gsub("%.%d+$", "")
+        if a_path and word_xp:sub(1, #a_path + 1) == a_path .. "/" then
+            return makeLink(page_link.section or page_link.uri, a_xp)
+        end
+    end
+
+    -- Fallback: hit-test the center of the word box
+    local sbox = word_info and word_info.sbox
+    if not sbox then return nil end
+    local link_xpointer, a_xpointer = doc:getLinkFromPosition({
+        x = sbox.x + math.floor(sbox.w / 2),
+        y = sbox.y + math.floor(sbox.h / 2),
+    })
+    if link_xpointer and link_xpointer ~= "" then
+        return makeLink(link_xpointer, a_xpointer)
+    end
+end
+
+--- Follow a link the same way a tap would (adds location to history).
+function Typewriter:followLink(link)
+    logger.dbg("Typewriter: following link", link.xpointer)
+    self:deactivateCursor()
+    self.ui.link:onGotoLink(link, false, G_reader_settings:isTrue("footnote_link_in_popup"))
+end
+
+--- Act on the single word under the cursor: follow it if it's a link
+-- (e.g. a TOC entry), like a tap would, otherwise open the word context menu.
+function Typewriter:activateWordAtCursor()
+    local link = self:getLinkAtCursor((self.cursor:getWordInfoAtCursor()))
+    if link then
+        self:followLink(link)
+        return
+    end
+    self.highlight:openWordContextMenu(self.cursor, self.lookup)
+    self:deactivateCursor()
+end
+
 function Typewriter:onTypewriterPress()
     if not self.cursor.cursor_active then
         return false
     end
 
     if not self.highlight.highlighting_enabled then
-        self.highlight:openWordContextMenu(self.cursor, self.lookup)
-        self:deactivateCursor()
+        self:activateWordAtCursor()
         return true
     end
 
@@ -440,8 +496,7 @@ function Typewriter:onTypewriterPress()
         return true
     end
 
-    self.highlight:openWordContextMenu(self.cursor, self.lookup)
-    self:deactivateCursor()
+    self:activateWordAtCursor()
     return true
 end
 

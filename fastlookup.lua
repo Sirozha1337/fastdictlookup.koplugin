@@ -201,11 +201,14 @@ function FastLookupController:getFootnoteText(link_xpointer, a_xpointer)
         return nil
     end
 
-    if link_xpointer:match("^https?://") then
+    -- isLinkToFootnote() dereferences the target node without a null check, so
+    -- it segfaults on targets that don't resolve: external URLs, but also
+    -- links to files not part of the rendered book (e.g. an excluded cover)
+    local doc = self.ui.document
+    if not doc:isXPointerInDocument(link_xpointer) then
         return nil
     end
 
-    local doc = self.ui.document
     local is_footnote, _reason, _extStopReason, extStartXP, extEndXP =
         doc:isLinkToFootnote(a_xpointer, link_xpointer, FOOTNOTE_FLAGS, MAX_FOOTNOTE_TEXT_SIZE)
 

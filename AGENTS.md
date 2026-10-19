@@ -99,8 +99,8 @@ Per-book settings override global defaults (read from `self.ui.doc_settings`, wr
 ## Key Event Flow
 
 1. **Inactive cursor**: `Down` → `activateCursor(true)` (first word), `Up` → `activateCursor(false)` (last word)
-2. **Active cursor**: Arrow keys navigate word-by-word; `Back` deactivates; `Press` toggles highlighting mode
-3. **Highlighting active**: Arrow keys extend selection; `Press` opens context menu (selection or single word)
+2. **Active cursor**: Arrow keys navigate word-by-word; `Back` deactivates; `Press` toggles highlighting mode (or, with highlighting disabled, acts on the single word as below)
+3. **Highlighting active**: Arrow keys extend selection; `Press` opens the selection context menu, or for a single word follows its link (via `ReaderLink:onGotoLink`, e.g. TOC entries) if it has one, otherwise opens the word context menu
 4. Key suppression: `suppressConflictingKeys()` marks sibling modules' arrow/press/back bindings as `is_inactive` while cursor is active; `restoreConflictingKeys()` reverses this on deactivation
 
 ## Development & Testing
